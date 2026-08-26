@@ -98,6 +98,49 @@ class RecurrentNetwork(AutoRegressiveBaseModelWithCovariates):
             loss (MultiHorizonMetric, optional): loss: loss function taking prediction and targets.
             logging_metrics (nn.ModuleList, optional): Metrics to log during training.
                 Defaults to nn.ModuleList([SMAPE(), MAE(), RMSE(), MAPE(), MASE()]).
+        Example:
+            >>> import lightning.pytorch as pl
+            >>> from pytorch_forcasting import RecurrentNetwork,TimeSeriesDataSet
+            >>> from pytorch_forcasting.data.examples import generate_ar_data
+            >>> data = generate_ar_data(n_series=10, timesteps = 100, seed = 42)
+            >>> data["time_idx"] = data["time_idx"].astype(int)
+            >>> max_encoder_length = 24
+            >>> max_prediction_length = 6
+            training = TimeSeriesDataSet(
+            ...    data,
+            ...    time_idx = "time_idx",
+            ...    target = "value",
+            ...    group_ids = ["series"],
+            ...    max_encoder_length = max_encoder_length,
+            ...    max_prediction_length = max_prediction_length,
+            ...    time_vary_unknown_reals= ["value"],
+            ...    target_lags = {"value": [1, 2, 3, 6, 12, 24]},
+            ...    add_relative_time_idx = True,
+            ...    add_target_scales = True,
+            ...    add_encoder_length = True,
+            ... )
+            >>> validation = TimeSeriesDataSet.from_dataset(
+            ...    training, data, predict=True, stop_randomization=True
+            ... )
+            >>> train_dataloader = training.to_dataloader(train=True, batch_size=32, num_workers=0)
+            >>> val_dataloader = validation.to_dataloader(train=False, batch_size=32, num_workers=0)
+            >>> rnn = RecurrentNetwork.from_dataset(
+            ...    training,
+            ...    cell_type = "LSTM",
+            ...    hidden_size = 32,
+            ...    rnn_layers = 2,
+            ...    dropout = 0.1,
+            ...    learning_rate = 1e-3,
+            ...    log_interval = 10,
+            ...)
+            >>> trainer = pl.Trainer(
+            ...    max_epochs = 1,
+            ...    accelerator = "cpu",
+            ...    enable_checkpointing = False,
+            ...    logger = False
+            ... )
+            >>> trainer.fit(rnn, train_dataloaders = train_dataloader, val_dataloaders = val_dataloader)
+            >>> predictions = rnn.predict(val_dataloader, trainer = trainer)
         """  # noqa : E501
         if static_categoricals is None:
             static_categoricals = []
@@ -148,9 +191,9 @@ class RecurrentNetwork(AutoRegressiveBaseModelWithCovariates):
             " be the same apart from target variable"
         )
         for targeti in to_list(target):
-            assert (
-                targeti in time_varying_reals_encoder
-            ), f"target {targeti} has to be real"  # todo: remove this restriction
+            assert targeti in time_varying_reals_encoder, (
+                f"target {targeti} has to be real"
+            )  # todo: remove this restriction
         assert (isinstance(target, str) and isinstance(loss, MultiHorizonMetric)) or (
             isinstance(target, tuple | list)
             and isinstance(loss, MultiLoss)
@@ -174,9 +217,9 @@ class RecurrentNetwork(AutoRegressiveBaseModelWithCovariates):
             self.output_projector = nn.Linear(
                 self.hparams.hidden_size, self.hparams.output_size
             )
-            assert not isinstance(
-                self.loss, QuantileLoss
-            ), "QuantileLoss does not work with recurrent network"
+            assert not isinstance(self.loss, QuantileLoss), (
+                "QuantileLoss does not work with recurrent network"
+            )
         else:  # multi target
             self.output_projector = nn.ModuleList(
                 [
@@ -185,9 +228,9 @@ class RecurrentNetwork(AutoRegressiveBaseModelWithCovariates):
                 ]
             )
             for l in self.loss:
-                assert not isinstance(
-                    l, QuantileLoss
-                ), "QuantileLoss does not work with recurrent network"
+                assert not isinstance(l, QuantileLoss), (
+                    "QuantileLoss does not work with recurrent network"
+                )
 
     @classmethod
     def from_dataset(
@@ -213,14 +256,11 @@ class RecurrentNetwork(AutoRegressiveBaseModelWithCovariates):
                 dataset=dataset, kwargs=kwargs, default_loss=MAE()
             )
         )
-        assert (
-            not isinstance(dataset.target_normalizer, NaNLabelEncoder)
-            and (
-                not isinstance(dataset.target_normalizer, MultiNormalizer)
-                or all(
-                    not isinstance(normalizer, NaNLabelEncoder)
-                    for normalizer in dataset.target_normalizer
-                )
+        assert not isinstance(dataset.target_normalizer, NaNLabelEncoder) and (
+            not isinstance(dataset.target_normalizer, MultiNormalizer)
+            or all(
+                not isinstance(normalizer, NaNLabelEncoder)
+                for normalizer in dataset.target_normalizer
             )
         ), (
             "target(s) should be continuous - categorical targets are not supported"
